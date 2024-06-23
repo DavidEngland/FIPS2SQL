@@ -1,0 +1,53 @@
+const fs = require('fs').promises;
+
+const validTypes = [
+    'County', 'Parish', 'Island Borough', 'Census Area', 'Municipality', 'City and Borough',
+    'Borough', 'City and County', 'Independent City', 'City', 'District', 'Island', 'Area',
+    'Municipio', 'Planning Region', 'Region'
+].sort((a, b) => b.length - a.length);
+
+async function processCountyData() {
+    try {
+        const rawData = await fs.readFile('./data/countyFipsCodes.json', 'utf8');
+        const counties = JSON.parse(rawData);
+        let sqlCommands = generateSqlCommands(counties);
+
+        await fs.writeFile('./data/insertCounties.sql', sqlCommands, 'utf8');
+        console.log('SQL commands have been written successfully');
+    } catch (error) {
+        console.error('Error processing the file:', error);
+    }
+}
+
+function generateSqlCommands(counties) {
+    let sqlCommands = `CREATE TABLE IF NOT EXISTS wp_counties (
+        fipsCode VARCHAR(10) PRIMARY KEY,
+        state_fips VARCHAR(2),
+        name VARCHAR(255),
+        type VARCHAR(100)
+    );\n`;
+
+    counties.map(({ countyName, fipsCode }) => structureCountyData(countyName, fipsCode)).forEach(({ fipsCode, name, type }) => {
+        const stateFips = fipsCode.substring(0, 2);
+        sqlCommands += `INSERT INTO wp_counties (fipsCode, state_fips, name, type) VALUES ('${fipsCode}', '${stateFips}', '${name.replace("'", "''")}', '${type}');\n`;
+    });
+
+    return sqlCommands;
+}
+
+function structureCountyData(countyName, fipsCode) {
+    const [fullCountyName, state] = countyName.split(',').map(part => part.trim());
+    let name = fullCountyName;
+    let type = validTypes.find(validType => fullCountyName.endsWith(validType)) || '';
+
+    if (type) {
+        name = fullCountyName.substring(0, fullCountyName.length - type.length).trim();
+    } else if (fullCountyName.toLowerCase().endsWith('city')) {
+        name = fullCountyName.substring(0, fullCountyName.length - 4).trim();
+        type = 'Independent City';
+    }
+
+    return { fipsCode, name, type, state };
+}
+
+processCountyData();
